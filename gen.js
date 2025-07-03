@@ -1,15 +1,16 @@
+// Improved Node.js version of Discord Token Generator with plain console logging (no chalk).
+
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 const axios = require('axios');
 const randomstring = require('randomstring');
-const chalk = require('chalk');
 const dayjs = require('dayjs');
 const readline = require('readline');
 
 puppeteer.use(StealthPlugin());
 
-const banner = `
+const BANNER = `
 ██████╗ ██╗██╗   ██╗███████╗██████╗ 
 ██╔══██╗██║██║   ██║██╔════╝██╔══██╗
 ██████╔╝██║██║   ██║█████╗  ██████╔╝
@@ -21,11 +22,23 @@ const banner = `
 `;
 
 function timestamp() {
-    return chalk.gray(`[${dayjs().format('HH:mm:ss DD-MM-YYYY')}]`);
+    return `[${dayjs().format('HH:mm:ss DD-MM-YYYY')}]`;
 }
 
-function printTempLog(tempEmail) {
-    console.log(`${timestamp()} ${chalk.blue("Using tempmail")}: ${chalk.green(tempEmail)}`);
+function logInfo(msg) {
+    console.log(`${timestamp()} [INFO] ${msg}`);
+}
+
+function logSuccess(msg) {
+    console.log(`${timestamp()} [SUCCESS] ${msg}`);
+}
+
+function logError(msg) {
+    console.log(`${timestamp()} [ERROR] ${msg}`);
+}
+
+function logWarn(msg) {
+    console.log(`${timestamp()} [WARN] ${msg}`);
 }
 
 function generateYopmailEmail() {
@@ -39,7 +52,6 @@ function generateRandomString(length = 12) {
 }
 
 async function accountRatelimit() {
-    // This is a rough node.js translation; real bypass requires custom TLS client.
     const email = randomstring.generate({ length: 9, charset: 'lowercase' }) +
         randomstring.generate({ length: 6, charset: 'numeric' });
     const mail = randomstring.generate({ length: 11, charset: 'lowercase' }) + "@gmail.com";
@@ -79,7 +91,6 @@ async function accountRatelimit() {
                     "X-Debug-Options": "bugReporterEnabled",
                     "X-Discord-Locale": "en-US",
                     "X-Discord-Timezone": "Asia/Calcutta",
-                    // "X-Super-Properties": "<very long base64 string>", // Omitted for brevity
                 }
             }
         );
@@ -88,7 +99,7 @@ async function accountRatelimit() {
         }
         return 1;
     } catch (e) {
-        console.log(chalk.red(`Error fetching rate limit: ${e.message}`));
+        logError(`Error fetching rate limit: ${e.message}`);
         return 1;
     }
 }
@@ -103,24 +114,26 @@ async function loginAndFetchToken(email, password) {
         const r = await axios.post("https://discord.com/api/v9/auth/login", data, { headers });
         if (r.status === 200 && r.data.token) {
             const token = r.data.token;
-            console.log(`${timestamp()} ${chalk.green(`Token fetched: ${token}`)}`);
+            logSuccess(`Token fetched: ${token}`);
             fs.appendFileSync("tokens.txt", `${token}\n`);
             fs.appendFileSync("evs.txt", `${email}:${password}:${token}\n`);
-            console.log(`${timestamp()} ${chalk.green("Token Saved to evs.txt and tokens.txt")}`);
+            logSuccess("Token Saved to evs.txt and tokens.txt");
             return true;
         } else if (r.data && r.data.captcha_key) {
-            console.log(`${timestamp()} ${chalk.red("Discord returned captcha, stopping retry.")}`);
+            logError("Discord returned captcha, stopping retry.");
             return false;
         }
     } catch (e) {
         if (e.response && e.response.data && e.response.data.captcha_key) {
-            console.log(`${timestamp()} ${chalk.red("Discord returned captcha, stopping retry.")}`);
+            logError("Discord returned captcha, stopping retry.");
+        } else {
+            logError(`Login error: ${e.message}`);
         }
     }
     return false;
 }
 
-async function waitForUserInput(msg) {
+function waitForUserInput(msg) {
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
@@ -131,19 +144,35 @@ async function waitForUserInput(msg) {
     }));
 }
 
+async function fillRegistrationForm(page, email) {
+    await page.type('input[name="email"]', email);
+    await page.type('input[name="global_name"]', "Lunarxterm");
+    await page.type('input[name="username"]', generateRandomString());
+    await page.type('input[name="password"]', email);
+
+    // Date selection logic
+    await page.click('#react-select-3-input');
+    await page.type('#react-select-3-input', '15');
+    await page.keyboard.press('Enter');
+    await page.click('#react-select-2-input');
+    await page.type('#react-select-2-input', 'MAY');
+    await page.keyboard.press('Enter');
+    await page.click('#react-select-4-input');
+    await page.type('#react-select-4-input', '1995');
+}
+
 async function main() {
     console.clear();
     process.title = "Ultimate EV GEN V1 By Anomus.LY_";
-    console.log(banner);
+    console.log(BANNER);
 
     while (true) {
         const { username, email } = generateYopmailEmail();
-        console.log(`${timestamp()} ${chalk.blue("Using temporary email:")} ${chalk.green(email)}`);
+        logInfo(`Using temporary email: ${email}`);
         if (!email) {
-            console.log(`${timestamp()} ${chalk.red("Failed to create temporary email.")}`);
+            logError("Failed to create temporary email.");
             continue;
         }
-        printTempLog(email);
 
         let browser;
         try {
@@ -160,40 +189,30 @@ async function main() {
             await page.goto('https://discord.com/register', { waitUntil: 'domcontentloaded' });
 
             await page.waitForSelector('input[name="email"]', { timeout: 20000 });
-            await page.type('input[name="email"]', email);
-            await page.type('input[name="global_name"]', "Lunarxterm");
-            const randUsername = generateRandomString();
-            await page.type('input[name="username"]', randUsername);
-            await page.type('input[name="password"]', email);
-            await page.click('#react-select-3-input');
-            await page.type('#react-select-3-input', '15');
-            await page.keyboard.press('Enter');
-            await page.click('#react-select-2-input');
-            await page.type('#react-select-2-input', 'MAY');
-            await page.keyboard.press('Enter');
-            await page.click('#react-select-4-input');
-            await page.type('#react-select-4-input', '1995');
+            await fillRegistrationForm(page, email);
 
             const limit = await accountRatelimit();
             if (limit > 1) {
-                console.log(`${timestamp()}${chalk.red(`[INFO] Ratelimited for ${limit} seconds. Retrying after ratelimit disappears.`)}`);
+                logWarn(`[INFO] Ratelimited for ${limit} seconds. Retrying after ratelimit disappears.`);
                 await new Promise(r => setTimeout(r, limit * 1000));
             }
 
             await page.waitForSelector('button[type="submit"]');
             await page.click('button[type="submit"]');
-            console.log(`${timestamp()} ${chalk.blue("Please Solve Captcha Manually.")}`);
+            logInfo("Please Solve Captcha Manually.");
 
+            // Wait for Discord redirect after registration
             await page.waitForFunction(
                 'window.location.href.includes("discord.com/channels/@me")',
                 { timeout: 300000 }
             );
-            console.log(`${timestamp()} ${chalk.green("Redirected to the Discord page!")}`);
+            logSuccess("Redirected to the Discord page!");
 
+            // Open yopmail for email verification
             const usernamebaba = email.split('@')[0];
             await page.goto(`https://yopmail.com/en/?login=${usernamebaba}`);
-            console.log(`${timestamp()} ${chalk.blue("Navigate to Yopmail and verify email manually.")}`);
-            console.log(`${timestamp()} ${chalk.blue("Once you've solved the CAPTCHA and clicked the verification link, close the browser window and press Enter to continue.")}`);
+            logInfo("Navigate to Yopmail and verify email manually.");
+            logInfo("Once you've solved the CAPTCHA and clicked the verification link, close the browser window and press Enter to continue.");
 
             await waitForUserInput("Press Enter after closing the browser window...");
 
@@ -201,19 +220,19 @@ async function main() {
 
             const success = await loginAndFetchToken(email, email);
             if (success) {
-                console.log(`${timestamp()} ${chalk.green("Process complete. Restarting...")}`);
+                logSuccess("Process complete. Restarting...");
             } else {
-                console.log(`${timestamp()} ${chalk.red("Failed to fetch the token.")}`);
+                logError("Failed to fetch the token.");
             }
         } catch (e) {
-            console.log(`${timestamp()} ${chalk.red("Error:")} ${e}`);
+            logError(`Error: ${e}`);
         } finally {
             if (browser) {
                 try {
                     await browser.close();
-                    console.log(`${timestamp()} ${chalk.green("Browser closed successfully.")}`);
+                    logSuccess("Browser closed successfully.");
                 } catch {
-                    console.log(`${timestamp()} ${chalk.yellow("Browser already closed or error occurred.")}`);
+                    logWarn("Browser already closed or error occurred.");
                 }
             }
         }
